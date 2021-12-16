@@ -1,12 +1,19 @@
+/**
+ *  Cassette
+ *  Content Addressable Storage Container
+ */
+
 use std::env;
 use std::fs::File;
 use std::fs;
-use std::io::BufReader;
 use std::io;
-use std::path::Path;
+use std::io::BufReader;
 use std::io::Seek;
-use jwalk::{WalkDir};
 use std::io::Write;
+use std::path::Path;
+
+use jwalk::{WalkDir};
+
 
 fn add_file(p: &Path, encoder: &mut dyn Write) -> io::Result<()> {
     let stat = fs::metadata(p)?;
