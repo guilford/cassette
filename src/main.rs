@@ -70,7 +70,7 @@ fn main() -> io::Result<()> {
     }
 
     println!("hashed & bundled {} files and {} bytes in {} seconds ", n, print_size(sz), now.elapsed().as_secs_f32());
-    let mut file = File::open("./foo.apq")?;
+    let mut file = File::open("./foo.cassette")?;
     let mut hasher = blake3::Hasher::new();
     std::io::copy(&mut file, &mut hasher)?;
     println!("foo.cassette : {}", hasher.finalize());
