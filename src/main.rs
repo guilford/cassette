@@ -3,31 +3,49 @@
  *  Content Addressable Storage Container
  */
 
+use std::collections::BTreeMap;
 use std::env;
-use std::fs::File;
 use std::fs;
+use std::fs::File;
 use std::io;
-use std::io::BufReader;
 use std::io::Seek;
 use std::io::Write;
+use std::os::linux::fs::MetadataExt;
 use std::path::Path;
+use std::time::Instant;
 
-use jwalk::{WalkDir};
+use jwalk::WalkDir;
 
 
-fn add_file(p: &Path, encoder: &mut dyn Write) -> io::Result<()> {
+fn print_size(sz: u64) -> String {
+    if sz > 1073741824 {
+       return format!(" {} GB ", sz / 1073741824);
+    } else if sz > 1048576 {
+       return format!(" {} MB ", sz / 1048576);
+    } else if sz > 1024 {
+       return format!(" {} KB ", sz / 1024);
+    }
+
+    return format!(" {} B ", sz);
+}
+
+fn add_file(
+    p: &Path,
+    encoder: &mut dyn Write,
+    map: &mut BTreeMap<[u8; 32], String>,
+) -> io::Result<u64> {
     let stat = fs::metadata(p)?;
     if stat.is_file() && p != Path::new("./foo.cassette") {
-        let file = File::open(p)?;
+        let mut file = File::open(p)?;
         let mut hasher = blake3::Hasher::new();
-        let mut reader = BufReader::new(file);
-        std::io::copy(&mut reader, &mut hasher)?;
-        reader.rewind()?;
-        std::io::copy(&mut reader, encoder)?;
+        std::io::copy(&mut file, &mut hasher)?;
+        file.rewind()?;
         let hash = hasher.finalize();
-        println!("{}: {}", hash, p.display()); 
+        std::io::copy(&mut file, encoder)?;
+        let path_string = String::from(p.to_str().unwrap());
+        map.insert(*hash.as_bytes(), path_string);
     }
-    Ok(())
+    Ok(stat.st_size())
 }
 
 fn main() -> io::Result<()> {
@@ -37,13 +55,25 @@ fn main() -> io::Result<()> {
     let mut frame_info = lz4_flex::frame::FrameInfo::new();
     frame_info.block_mode = lz4_flex::frame::BlockMode::Linked;
     let mut compressor = lz4_flex::frame::FrameEncoder::with_frame_info(frame_info, archive);
+    let mut map = BTreeMap::new();
 
+    let now = Instant::now();
     let mut n: u32 = 0;
-    for f in WalkDir::new(Path::new(dir.unwrap_or(&String::from(".")))) {
-	    add_file(f?.path().as_path(), &mut compressor)?;
+    let mut sz: u64 = 0;
+    for f in WalkDir::new(Path::new(dir.unwrap_or(&String::from(".")))).sort(true) {
+        sz += add_file(f?.path().as_path(), &mut compressor, &mut map)?;
         n = n + 1;
     }
-    println!("hashed {} files",  n);
+
+    for (hash_bytes, fname) in &map {
+        println!("{} : {}", blake3::Hash::from(*hash_bytes), fname);
+    }
+
+    println!("hashed & bundled {} files and {} bytes in {} seconds ", n, print_size(sz), now.elapsed().as_secs_f32());
+    let mut file = File::open("./foo.apq")?;
+    let mut hasher = blake3::Hasher::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    println!("foo.cassette : {}", hasher.finalize());
+
     Ok(())
 }
-
